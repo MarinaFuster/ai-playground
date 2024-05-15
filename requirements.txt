@@ -1,0 +1,12 @@
+numpy
+pandas
+matplotlib
+mne
+ipykernel
+seaborn
+scikit-learn
+tensorflow
+keras
+torch
+tiktoken
+cuda
