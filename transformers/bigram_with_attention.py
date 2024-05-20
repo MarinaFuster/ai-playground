@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from head import Head
+from attention import MultiHeadAttention
 
 # hyperparameters
 batch_size = 32 # how many independent sequences will we process in parallel?
@@ -74,7 +74,19 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.self_attention_head = Head(head_size=n_embd, n_embd=n_embd, block_size=block_size, dropout=0.2)
+        
+        # attention mechanism
+        # self.self_attention_head = Head(head_size=n_embd, n_embd=n_embd, block_size=block_size, dropout=0.2)
+        
+        # now, we have multiple communication channels (shorter) which through the tokens can communicate
+        self.self_attention_heads = MultiHeadAttention(
+            num_heads=4, 
+            head_size=n_embd//4, # 4 heads of 8-dimensional self-attention
+            n_embd=n_embd, 
+            block_size=block_size, 
+            dropout=0.2
+        )
+        
         self.language_model_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -85,7 +97,12 @@ class BigramLanguageModel(nn.Module):
         pos_embd = self.position_embedding_table(torch.arange(block_size, device=device)) # (T, n_embd)
         print(pos_embd.shape)
         x = tok_embd + pos_embd # (B, T, n_embd)
-        x = self.self_attention_head(x) # (B, T, head_size)
+        x = self.self_attention_heads(x) # (B, T, head_size)
+        
+        # if we jump from attention to calculating the logics, we can think about it
+        # as if the tokens have communicated between each other, they've gather data
+        # but they don't have a lot of time to "reflect" or "think" about what
+        # they've learned and how to use it to calculate the logits.
         logits = self.language_model_head(x) # (B, T, vocab_size)
 
         if targets is None:
@@ -122,22 +139,22 @@ m = model.to(device)
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-# for iter in range(max_iters):
+for iter in range(max_iters):
 
-#     # every once in a while evaluate the loss on train and val sets
-#     if iter % eval_interval == 0:
-#         losses = estimate_loss()
-#         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    # every once in a while evaluate the loss on train and val sets
+    if iter % eval_interval == 0:
+        losses = estimate_loss()
+        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
-#     # sample a batch of data
-#     xb, yb = get_batch('train')
+    # sample a batch of data
+    xb, yb = get_batch('train')
 
-#     # evaluate the loss
-#     logits, loss = model(xb, yb)
-#     optimizer.zero_grad(set_to_none=True)
-#     loss.backward()
-#     optimizer.step()
+    # evaluate the loss
+    logits, loss = model(xb, yb)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
 
 # generate from the model
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+# context = torch.zeros((1, 1), dtype=torch.long, device=device)
+# print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
