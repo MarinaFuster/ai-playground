@@ -2,14 +2,17 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from head import Head
+
 # hyperparameters
 batch_size = 32 # how many independent sequences will we process in parallel?
 block_size = 8 # what is the maximum context length for predictions?
 max_iters = 3000
 eval_interval = 300
-learning_rate = 1e-2
+learning_rate = 1e-3 # attention mechanisms do not handle large learning rates well
 device = 'cpu'
 eval_iters = 200
+n_embd = 32 # TODO: this still requires formal definition. The context can't be bigger than this.
 # ------------
 
 torch.manual_seed(1337)
@@ -69,13 +72,21 @@ class BigramLanguageModel(nn.Module):
 
     def __init__(self, vocab_size):
         super().__init__()
-        # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.self_attention_head = Head(head_size=n_embd, n_embd=n_embd, block_size=block_size, dropout=0.2)
+        self.language_model_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
+        B, T = idx.shape
 
-        # idx and targets are both (B,T) tensor of integers
-        logits = self.token_embedding_table(idx) # (B,T,C)
+        tok_embd = self.token_embedding_table(idx) # (B, T, n_embd)
+        print(tok_embd.shape)
+        pos_embd = self.position_embedding_table(torch.arange(block_size, device=device)) # (T, n_embd)
+        print(pos_embd.shape)
+        x = tok_embd + pos_embd # (B, T, n_embd)
+        x = self.self_attention_head(x) # (B, T, head_size)
+        logits = self.language_model_head(x) # (B, T, vocab_size)
 
         if targets is None:
             loss = None
@@ -90,8 +101,11 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array of indices in the current context
         for _ in range(max_new_tokens):
+            print(idx.shape)
+            # crop the context because it cant be larger than block_size due to positional embedding table
+            idx_cropped = idx[:, -block_size:] 
             # get the predictions
-            logits, loss = self(idx)
+            logits, _ = self(idx_cropped)
             # focus only on the last time step
             logits = logits[:, -1, :] # becomes (B, C)
             # apply softmax to get probabilities
@@ -108,21 +122,21 @@ m = model.to(device)
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-for iter in range(max_iters):
+# for iter in range(max_iters):
 
-    # every once in a while evaluate the loss on train and val sets
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+#     # every once in a while evaluate the loss on train and val sets
+#     if iter % eval_interval == 0:
+#         losses = estimate_loss()
+#         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
-    # sample a batch of data
-    xb, yb = get_batch('train')
+#     # sample a batch of data
+#     xb, yb = get_batch('train')
 
-    # evaluate the loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+#     # evaluate the loss
+#     logits, loss = model(xb, yb)
+#     optimizer.zero_grad(set_to_none=True)
+#     loss.backward()
+#     optimizer.step()
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
