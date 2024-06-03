@@ -9,3 +9,7 @@ tensorflow
 keras
 torch
 tiktoken
+tqdm
+sympy
+setuptools
+pykan
